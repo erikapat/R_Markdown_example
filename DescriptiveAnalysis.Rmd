@@ -1,0 +1,218 @@
+---
+title: "Descriptive Analysis"
+output: 
+  html_document:
+    fig_width: 10 
+    fig_height: 10
+    includes:
+      after_body: footer.html
+---
+
+---
+
+```{r eval=T, message = F}
+rm(list=ls())
+# Load all the libraries
+source('src/R_libraries.R')
+source('src/correlation_functions.R')
+source('src/Information_Gain.R')
+source("src/matrizdeconfusion.R")
+
+```
+
+```{r eval=T, cache=FALSE, warning= F, message = F}
+# Load the data
+dt.data <- fread('data/PruebaDSBigData_conjuntoParaHacerDescriptivo.csv')
+
+#Transform the date a little bit, in order to be easy to plot
+dt.data.p <- dt.data[, -c('user_id')]
+dt.melt <- melt(dt.data.p)
+
+```
+
+Look some statistics.
+```{r eval=T, message = F}
+dt.data.aux <- copy(dt.data)
+dt.data.aux <- dt.data.aux[, USA := as.factor(USA)][, EU := as.factor(EU)][, ASIA := as.factor(ASIA)][, generos_por_dia := as.factor(generos_por_dia)]
+dt.data.aux <- dt.data.aux[, dispositivos := as.factor(dispositivos)][, se_hizo_premium_0_1 := as.factor(se_hizo_premium_0_1)]
+summary(dt.data.aux)
+ 
+```
+
+There are not NA' s or other rare behaviour. 
+
+```{r eval=T,  cache=FALSE, warning= F, message = F}
+dt.melt.aux <- copy(dt.data)
+dt.melt.aux <- dt.melt.aux[, -c('user_id', 'USA', 'EU', 'ASIA', 'se_hizo_premium')]
+dt.melt.aux <- melt(dt.melt.aux)
+hcboxplot(x = dt.melt.aux$value, var = dt.melt.aux$variable,
+          name = "value", color = "#2980b9") 
+
+
+```
+
+```{r eval=T,  cache=FALSE, warning= F, message = F}
+ggplot(dt.melt, aes(x = value)) +
+  geom_histogram(bins = nclass.Sturges(dt.melt$value)) +
+  facet_wrap(~ variable, scales = "free")
+```
+
+\centering
+---
+
+```{r eval=T,  cache=FALSE, warning= F, message = F}
+
+dt.data <- dt.data[,  se_hizo_premium_0_1 := as.factor(se_hizo_premium_0_1)]
+ggpairs(dt.data, columns = c("antiguedad", "canciones_por_dia", "generos_por_dia", 'dispositivos', 'proporcion_horas_de_trabajo', 'busquedas_por_dia',
+                             'proporcion_canciones_de_moda', 'USA'), aes(color = se_hizo_premium_0_1), upper  = list(continuous = "blank"), alpha = .9)
+
+
+
+```
+
+```{r eval=T,  cache=FALSE, warning= F, message = F}
+dt.data.aux   <- copy(dt.data)
+dt.data.aux  <- dt.data.aux[,  se_hizo_premium_0_1 := as.numeric(se_hizo_premium_0_1)][, user_id := NULL]
+d         <- CorrelationGraph_3(dt.data.aux)
+d
+
+
+```
+
+<!-- ```{r eval=T,  cache=FALSE, warning= F, message = F, out.width = '80%'} -->
+<!--   dt.values <- dt.data[, -c('user_id')] -->
+<!--   dt.values <- information.gain(se_hizo_premium_0_1~., dt.values) -->
+<!--   d <- Graph_information_gain(dt.values) -->
+<!--   d  -->
+<!-- ``` -->
+
+<!-- ```{r eval=T,  cache=FALSE, warning= F, message = F, out.width = '80%'} -->
+
+<!-- hchart(dt.data, "scatter", hcaes(x = canciones_por_dia, y = generos_por_dia, group = se_hizo_premium_0_1)) -->
+<!-- hchart(dt.data, "scatter", hcaes(x = user_id, y = antiguedad, group = se_hizo_premium_0_1)) -->
+
+<!-- ``` -->
+
+```{r eval=T,  cache=FALSE, warning= F, message = F, results = 'hide', out.width = '120%'}
+require(tree)
+control.values <- tree.control(nrow(dt.data), mincut = 0, minsize = 2, mindev = 0.01)
+#method = "recursive.partition",
+#split = c("deviance", "gini"),
+dt.data.1 <- copy(dt.data)
+dt.data.1 <- dt.data.1[, user_id := NULL][, se_hizo_premium_0_1 := as.factor(se_hizo_premium_0_1)][, p_hrs_trab := proporcion_horas_de_trabajo][, proporcion_horas_de_trabajo := NULL][, prop_canc_moda := proporcion_canciones_de_moda][, proporcion_canciones_de_moda := NULL]
+m1.tr <- tree(dt.data.1$se_hizo_premium_0_1 ~.,dt.data.1[, 1:(ncol(dt.data)- 1), with = F], split = "deviance", wts="TRUE") #usamos el estad?stico de Gini...
+dt.data.1 <- dt.data.1[, se_hizo_premium_0_1 := as.integer(se_hizo_premium_0_1)]
+
+# summary(m1.tr)
+# plot(m1.tr); text(m1.tr)
+cv.tree(m1.tr)
+m2.tr = prune.tree(m1.tr, best = 5)
+plot(m2.tr); text(m2.tr)
+
+
+```
+
+```{r eval=T,  cache=FALSE, warning= F, message = F, results = 'hide'}
+
+#Separar la data en entrenamiento y prueba
+
+indexes  <- sample(1:nrow(dt.data), size = nrow(dt.data)*.70)
+dt.train <- dt.data[indexes, ][, -c('user_id')]
+dt.test  <- dt.data[-indexes, ][, -c('user_id')]
+
+dt.train.class <- dt.train[, .(se_hizo_premium_0_1)]
+dt.test.class  <- dt.test[, .(se_hizo_premium_0_1)]
+
+dt.train <- dt.train[, se_hizo_premium_0_1 := NULL]
+dt.test  <- dt.test[, se_hizo_premium_0_1 := NULL]
+
+
+cat("\n")
+cat("[INFO] Number of instances in Train Data:      ", nrow(dt.train), 
+    "Positives: ", nrow(dt.train.class[se_hizo_premium_0_1 == 1]), "Negatives: ", nrow(dt.train.class[se_hizo_premium_0_1 == 0]), "\n")
+
+
+n_size   <- 10
+max_nodes <- 10
+cat("[INFO] Training model...\n")
+model.name <- 'train.RF'
+rf.train  <- randomForest(dt.train, y = as.factor(dt.train.class$se_hizo_premium_0_1), 
+                          nodesize = n_size, #minimum size of terminal nodes, , cutoff  classwt
+                          # cutoff works like a cost function
+                          #cutoff = c(nrow(dt.train.class[se_hizo_premium_0_1 == '1',])/nrow(dt.train.class), nrow(dt.train.class[se_hizo_premium_0_1 == '0',])/nrow(dt.train.class)), 
+                          #maxnodes =  max_nodes, #Maximum number of terminal nodes
+                          #sampsize = 1, #Size(s) of sample to draw. 
+                          method = "class", 
+                          ntree = 5000, #number.trees,
+                          #mtry = sqrt(ncol(dt.train)),      # number of var sampled
+                          #replace = T,
+                          do.trace = T #,
+                          # na.action = na.omit
+)
+
+
+```
+
+<!-- ```{r eval=T,  cache=FALSE, warning= F, message = F} -->
+<!-- rf.cv <- rf.crossValidation(rf.train, dt.train, p=0.10, n= 5, ntree= 1000) -->
+<!-- print(rf.cv) -->
+
+<!-- # varImpPlot(rf.train, main = paste0("VarImpPlot ", model.name), n.var = 60) -->
+<!-- # plot(rf.train, log = "y", main = paste0("Error ", model.name)) -->
+
+<!-- ``` -->
+
+
+```{r eval=T,  cache=FALSE, warning= F, message = F}
+# #MATRIZ DE CONFUSIÓN
+load("data/dt.results.training.RData")
+cat(" [INFO] Confusion Matrix: \n")
+mc(dt.results.training$result, dt.results.training$real, imprimir = 1)
+
+```
+
+```{r eval=T,  cache=FALSE, warning= F, message = F}
+dt.importance <- melt(as.matrix(rf.train$importance))
+d <- ggplot(dt.importance, aes(y = value, x = reorder(Var1, value))) +  geom_bar(stat = "identity", color = 'blue') + coord_flip()
+d <- d + ylab('MeanDecreaseGini') + xlab('Features') 
+d <- d + theme(axis.title.y = element_text(size = rel(1.5)))
+d <- d + theme(axis.text.y = element_text(size = rel(1.8)))
+d <- d + theme(axis.text.x = element_text(size = rel(1.8)))
+d <- d + theme(axis.title.x = element_text(size = rel(1.5)))
+d <- d + theme(legend.text = element_text(size = 15))
+d <- d + theme(legend.title = element_text(size = 15))
+d <- d +  theme(
+  panel.background = element_rect(fill="white") ,
+  panel.grid.minor.y = element_line(size=3),
+  panel.grid.major = element_line(colour = "lightgray"),
+  plot.background = element_rect(fill="white")
+)
+
+d
+
+```
+
+
+```{r eval=T,  cache=FALSE, warning= F, message = F}
+cat("\n")
+cat("[INFO] Number of instances in Test Data:      ", nrow(dt.test), 
+    "Positives: ", nrow(dt.test.class[se_hizo_premium_0_1 == '1']), "Negatives: ", nrow(dt.test.class[se_hizo_premium_0_1 == '0']), "\n")
+
+cat("predict with type = prob\n")
+pred.rf.test.1 <- predict(rf.train, dt.test, type = "prob")
+pred.1 <- prediction(pred.rf.test.1[,2], dt.test.class$se_hizo_premium_0_1)
+
+perf.1 <- performance(pred.1, "tpr", "fpr")
+plot(perf.1, main = "Positive Instances ROC Curve")
+
+perf.2 <- performance(pred.1, "tnr", "fnr")
+plot(perf.2, main = "Negative Instances ROC Curve")
+# 
+# #MATRIZ DE CONFUSIÓN
+load("data/dt.results.test.RData")
+cat(" [INFO] Confusion Matrix: \n")
+mc(dt.results.test$result, dt.results.test$real, imprimir = 1)
+
+
+
+```
